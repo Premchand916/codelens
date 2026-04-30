@@ -28,3 +28,20 @@ print(f"Dissimilar pair: {cosine_similarity(a, c):.4f}")   # expect ~0.20-0.40
 texts = ["error handling", "async patterns", "security practices"]
 batch = pipeline.embed_batch(texts)
 print(f"\nBatch shape: {batch.shape}")  # (3, 384)
+
+from embeddings.vectorizer import embed_knowledge_base
+
+# Embed all knowledge base docs → saves to data/kb_vectors.npz
+embed_knowledge_base(
+    kb_dir="knowledge_base",
+    output_path="data/kb_vectors.npz",
+    pipeline=pipeline,
+)
+
+# Verify the saved file
+data = np.load("data/kb_vectors.npz", allow_pickle=True)
+print(f"\nKnowledge base vectors shape: {data['vectors'].shape}")
+print(f"Documents embedded: {len(data['metadata'])}")
+print("Sources:")
+for m in data['metadata']:
+    print(f"  {m}")
