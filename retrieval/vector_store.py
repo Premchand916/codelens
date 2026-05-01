@@ -167,9 +167,13 @@ class VectorStore:
         query_vector = np.asarray(query_vector, dtype=np.float32)
         if query_vector.ndim == 1:
             query_vector = query_vector.reshape(1, -1)
-        if query_vector.ndim != 2 or query_vector.shape[1] != self.dim:
+        if (
+            query_vector.ndim != 2
+            or query_vector.shape[0] != 1
+            or query_vector.shape[1] != self.dim
+        ):
             raise ValueError(
-                f"query_vector must have shape ({self.dim},) or (n, {self.dim}); "
+                f"query_vector must have shape ({self.dim},) or (1, {self.dim}); "
                 f"got {query_vector.shape}"
             )
         

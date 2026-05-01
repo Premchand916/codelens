@@ -10,6 +10,30 @@ from collections import Counter
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "code",
+    "for",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "my",
+    "of",
+    "on",
+    "or",
+    "should",
+    "that",
+    "the",
+    "to",
+    "when",
+    "with",
+}
+
 
 @dataclass
 class BM25Result:
@@ -42,9 +66,15 @@ class BM25Retriever:
     #    docs that never use that word. For code review, both matter."
     """
 
-    def __init__(self, k1: float = 1.5, b: float = 0.75):
+    def __init__(
+        self,
+        k1: float = 1.5,
+        b: float = 0.75,
+        stopwords: set[str] | None = None,
+    ):
         self.k1 = k1
         self.b = b
+        self.stopwords = DEFAULT_STOPWORDS if stopwords is None else stopwords
         self.corpus: list[list[str]] = []       # tokenized docs
         self.texts: list[str] = []              # raw texts
         self.metadata: list[dict | str] = []
@@ -62,7 +92,7 @@ class BM25Retriever:
         """
         import re
         tokens = re.findall(r"[a-zA-Z0-9_]+", text.lower())
-        return tokens
+        return [token for token in tokens if token not in self.stopwords]
 
     # ------------------------------------------------------------------
     # Index

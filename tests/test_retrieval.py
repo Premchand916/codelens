@@ -83,7 +83,7 @@ def test_bm25_semantic_query_weak(bm25):
 
 def test_vector_store_top_result_async(vector_store, pipeline):
     """Semantic query about async errors → async_patterns.md or error_handling.md in top 2."""
-    qvec = pipeline.embed_texts(["async exception handling python"])
+    qvec = pipeline.embed_batch(["async exception handling python"])
     results = vector_store.search(qvec, k=3)
     sources = [r.source for r in results]
     assert any("async" in s or "error" in s for s in sources), (
@@ -93,7 +93,7 @@ def test_vector_store_top_result_async(vector_store, pipeline):
 
 def test_vector_store_scores_bounded(vector_store, pipeline):
     """Cosine similarity on normalized vectors must be in [-1, 1]."""
-    qvec = pipeline.embed_texts(["random query about nothing specific"])
+    qvec = pipeline.embed_batch(["random query about nothing specific"])
     results = vector_store.search(qvec, k=5)
     for r in results:
         assert -1.0 <= r.score <= 1.0, f"Score out of bounds: {r.score}"
