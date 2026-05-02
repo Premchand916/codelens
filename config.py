@@ -20,13 +20,13 @@ class Settings(BaseSettings):
     log_level: str = Field("DEBUG", alias="LOG_LEVEL")
 
     # GitHub
-    github_webhook_secret: str = Field(..., alias="GITHUB_WEBHOOK_SECRET")
-    github_token: str = Field(..., alias="GITHUB_TOKEN")
+    github_webhook_secret: str = Field("", alias="GITHUB_WEBHOOK_SECRET")
+    github_token: str = Field("", alias="GITHUB_TOKEN")
 
     # Ollama
     ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
-    ollama_model: str = Field("llama3.1:8b", alias="OLLAMA_MODEL")
-    ollama_code_model: str = Field("deepseek-coder:6.7b", alias="OLLAMA_CODE_MODEL")
+    ollama_model: str = Field("qwen2.5-coder:1.5b", alias="OLLAMA_MODEL")
+    ollama_code_model: str = Field("qwen2.5-coder:1.5b", alias="OLLAMA_CODE_MODEL")
 
     # Review
     max_files_per_pr: int = Field(20, alias="MAX_FILES_PER_PR")
@@ -50,5 +50,11 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "case_sensitive": False}
 
 
-# Singleton — import this everywhere
-settings = Settings()
+_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings

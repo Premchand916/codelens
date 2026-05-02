@@ -4,6 +4,7 @@ FastAPI application entry point for CodeLens.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,30 +21,29 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Startup / shutdown lifecycle.
-    # [INTERNAL] asynccontextmanager lifespan replaces @app.on_event (deprecated).
-    # Code before 'yield' runs at startup. Code after runs at shutdown.
-    # We initialize the Ollama client once here and store on app.state —
-    # shared across all requests without creating a new client per request.
-    """
     logger.info("Starting CodeLens...")
-    app.state.ollama_client = OllamaClient(model="deepseek-coder:6.7b")
+
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    model = os.getenv("OLLAMA_CODE_MODEL", "deepseek-coder:6.7b")
+
+    app.state.ollama_client = OllamaClient(
+        base_url=base_url,
+        model=model,
+        timeout=60.0,
+    )
     app.state.config = _load_config()
 
     ok = await app.state.ollama_client.is_available()
     if not ok:
         logger.warning("Ollama not available at startup — /ready will report degraded")
 
-    yield  # app runs here
+    yield
 
     logger.info("Shutting down CodeLens...")
     await app.state.ollama_client.close()
 
 
 def _load_config():
-    """Minimal config — replace with Pydantic Settings in config.py."""
-    import os
     from types import SimpleNamespace
     return SimpleNamespace(
         webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET", ""),
