@@ -69,6 +69,14 @@ def cosine_similarity_matrix(query: np.ndarray, corpus: np.ndarray) -> np.ndarra
     # This is 10-100x faster than a Python loop for large N.
     # NumPy dispatches this to BLAS — runs on SIMD CPU instructions.
     """
+    query = np.asarray(query)
+    if query.ndim == 2:
+        if query.shape[0] != 1:
+            raise ValueError(f"Expected one query vector, got shape {query.shape}")
+        query = query[0]
+    if query.ndim != 1:
+        raise ValueError(f"Expected query shape (D,) or (1, D), got {query.shape}")
+
     query_norm = normalize(query)
     # Normalize each row of corpus matrix
     norms = np.linalg.norm(corpus, axis=1, keepdims=True)  # shape (N, 1)

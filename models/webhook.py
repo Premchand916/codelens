@@ -1,79 +1,40 @@
 """
-Pydantic models for GitHub pull request webhook payloads.
+models/webhook.py — Pydantic models for GitHub webhook payloads.
+GitHub sends JSON — we parse and validate it here before touching it.
 """
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
-
-
-class GitHubUser(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    login: str = "unknown"
-    id: int | None = None
+from pydantic import BaseModel
+from typing import Optional
 
 
-class GitHubRepository(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    id: int | None = None
-    name: str | None = None
-    full_name: str
-    html_url: HttpUrl | None = None
-    clone_url: HttpUrl | None = None
-    default_branch: str | None = None
-
-
-class PullRequestRef(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    ref: str
-    sha: str
-
-
-class PullRequestBranch(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    label: str | None = None
-    ref: str
-    sha: str
-    repo: GitHubRepository | None = None
+class Repository(BaseModel):
+    full_name: str        # "Premchand916/codelens"
+    clone_url: str
+    default_branch: str
 
 
 class PullRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    id: int | None = None
     number: int
     title: str
-    body: str | None = None
-    state: str = "unknown"
-    html_url: HttpUrl | None = None
-    diff_url: HttpUrl | None = None
-    patch_url: HttpUrl | None = None
-    head: PullRequestBranch | None = None
-    base: PullRequestBranch | None = None
-    base_ref: str | None = None
-    head_ref: str | None = None
-    user: GitHubUser = Field(default_factory=GitHubUser)
-    additions: int = 0
-    deletions: int = 0
-    changed_files: int = 0
+    body: Optional[str] = None
+    state: str            # "open" | "closed"
+    base_ref: str         # target branch e.g. "main"
+    head_ref: str         # source branch e.g. "feature/add-auth"
+    additions: int
+    deletions: int
+    changed_files: int
+
+
+class Sender(BaseModel):
+    login: str            # GitHub username
 
 
 class PRWebhookPayload(BaseModel):
     """
-    The GitHub pull_request webhook body.
-
-    GitHub sends many fields that the app does not need yet, so these models
-    keep known fields typed while allowing the rest of the payload through.
+    Represents the JSON body GitHub sends when a PR event occurs.
+    We only model fields we actually use — Pydantic ignores the rest.
     """
-
-    model_config = ConfigDict(extra="allow")
-
-    action: str
-    number: int
+    action: str           # "opened" | "synchronize" | "reopened" | "closed"
+    number: int           # PR number (redundant with pull_request.number, but top-level)
     pull_request: PullRequest
-    repository: GitHubRepository
-    sender: GitHubUser
-    installation: dict[str, Any] | None = Field(default=None)
+    repository: Repository
+    sender: Sender

@@ -1,0 +1,58 @@
+# docker-compose.yml
+# [SURFACE] Orchestrates CodeLens + Ollama as linked services
+# [INTERNAL] Compose creates a bridge network. Services reach
+# each other by service name (e.g., http://ollama:11434).
+# No need to hardcode IPs.
+
+version: "3.9"
+
+services:
+  codelens:
+    build:
+      context: .
+      target: runtime        # Use the 'runtime' stage, not 'builder'
+    ports:
+      - "8000:8000"          # host:container
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434   # service name, not localhost
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    env_file:
+      - .env                 # GITHUB_WEBHOOK_SECRET, etc.
+    depends_on:
+      ollama:
+        condition: service_healthy   # Wait until Ollama passes health check
+    volumes:
+      # Persist FAISS index and semantic cache between restarts
+      - codelens_data:/app/faiss_index
+      - codelens_cache:/app/cache_store
+    restart: unless-stopped
+    networks:
+      - codelens_net
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama    # Persist downloaded models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - codelens_net
+    # On Mac M-series: Ollama uses Metal automatically
+    # On Linux with GPU: add 'deploy: resources: reservations: devices'
+
+volumes:
+  codelens_data:
+  codelens_cache:
+  ollama_models:
+
+networks:
+  codelens_net:
+    driver: bridge

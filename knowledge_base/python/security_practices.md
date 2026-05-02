@@ -2,8 +2,15 @@
 
 ## Never Hardcode Credentials
 API keys, passwords, tokens must come from environment variables, never source code.
-BAD: API_KEY = "sk-abc123"
-GOOD: API_KEY = os.environ["API_KEY"]
+
+```python
+# BAD
+API_KEY = "sk-abc123..."
+
+# GOOD
+import os
+API_KEY = os.environ["API_KEY"]
+```
 
 ## Validate All External Input
 Never trust data from webhooks, APIs, or users. Validate schema with Pydantic.
@@ -17,4 +24,4 @@ Scrub credentials before logging. Check f-strings that include request bodies.
 
 ## Dependency Security
 Pin dependency versions in requirements.txt.
-Run pip audit regularly to catch known CVEs.
+Run `pip audit` regularly to catch known CVEs.

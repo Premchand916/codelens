@@ -1,12 +1,12 @@
 # Credential Handling
 
 ## Environment Variables Are Not Enough Alone
-.env files must be in .gitignore. Verify before every commit.
-Use python-dotenv for local dev, proper secrets manager in prod.
+`.env` files must be in `.gitignore`. Verify before every commit.
+Use `python-dotenv` for local dev, proper secrets manager in prod.
 
 ## Rotate Compromised Secrets Immediately
-If a key is committed to git even for 1 second — treat it as compromised.
-Git history preserves it. Rotate the key, do not just delete the commit.
+If a key is committed to git — even for 1 second — treat it as compromised.
+Git history preserves it. Rotate the key, don't just delete the commit.
 
 ## Minimum Privilege
 API keys should have only the permissions they need.

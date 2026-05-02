@@ -1,0 +1,168 @@
+# .github/workflows/ci.yml
+# [SURFACE] Runs on every PR: lint → test → eval gate → build check
+# [INTERNAL] Jobs run in parallel by default. We chain them with
+# `needs:` to enforce order. If eval_gate fails, Docker build job
+# is skipped entirely — PR can't merge.
+
+name: CodeLens CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  MIN_EVAL_PASS_RATE: "0.80"
+
+jobs:
+  # ──────────────────────────────────────────
+  # Job 1: Lint + Type Check
+  # ──────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install lint deps
+        run: pip install ruff mypy
+
+      - name: Ruff (lint + format check)
+        run: ruff check . && ruff format --check .
+
+      - name: Mypy (type check)
+        run: mypy . --ignore-missing-imports
+
+  # ──────────────────────────────────────────
+  # Job 2: Unit Tests
+  # ──────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint                 # Only runs if lint passes
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        env:
+          # [INTERNAL] GitHub Actions injects secrets as env vars.
+          # They're masked in logs — never printed even if you echo them.
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENVIRONMENT: testing
+          # Point to mock Ollama — no real Ollama in CI
+          OLLAMA_BASE_URL: http://localhost:11434
+        run: |
+          pytest tests/ \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-fail-under=70 \
+            -v
+
+  # ──────────────────────────────────────────
+  # Job 3: Eval Gate
+  # [INTERVIEW] "Why a separate eval job?"
+  # → Tests check code correctness. Eval checks AI output quality.
+  #   A refactor can pass all unit tests but degrade retrieval precision.
+  #   Eval gate catches that. It's your regression net for AI behavior.
+  # ──────────────────────────────────────────
+  eval_gate:
+    name: Eval Gate (>80% pass rate required)
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run eval suite
+        env:
+          ENVIRONMENT: testing
+          MIN_EVAL_PASS_RATE: ${{ env.MIN_EVAL_PASS_RATE }}
+        run: |
+          python -m eval.evaluator --mode ci --output eval_results.json
+
+      - name: Check eval pass rate
+        run: |
+          python - <<'EOF'
+          import json, sys
+
+          with open("eval_results.json") as f:
+              results = json.load(f)
+
+          pass_rate = results["pass_rate"]
+          threshold = float("${{ env.MIN_EVAL_PASS_RATE }}")
+
+          print(f"Eval pass rate: {pass_rate:.1%} (threshold: {threshold:.1%})")
+
+          if pass_rate < threshold:
+              print(f"FAILED: pass rate {pass_rate:.1%} < {threshold:.1%}")
+              print("Blocking merge — fix eval regressions before merging.")
+              sys.exit(1)
+
+          print("PASSED: Eval gate cleared.")
+          EOF
+
+      - name: Upload eval results
+        uses: actions/upload-artifact@v4
+        if: always()          # Upload even if gate fails (debug visibility)
+        with:
+          name: eval-results
+          path: eval_results.json
+
+  # ──────────────────────────────────────────
+  # Job 4: Docker Build Validation
+  # Doesn't push — just proves the image builds cleanly
+  # ──────────────────────────────────────────
+  docker_build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: eval_gate           # Only if eval gate passes
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --target runtime \
+            --tag codelens:ci-${{ github.sha }} \
+            .
+
+      - name: Check image size
+        run: |
+          SIZE=$(docker image inspect codelens:ci-${{ github.sha }} \
+            --format='{{.Size}}')
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "Image size: ${SIZE_MB}MB"
+          if [ $SIZE_MB -gt 500 ]; then
+            echo "FAILED: Image ${SIZE_MB}MB exceeds 500MB limit"
+            exit 1
+          fi
+          echo "PASSED: Image size OK"

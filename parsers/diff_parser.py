@@ -1,194 +1,198 @@
 """
-Unified diff parser for pull request patches.
+parsers/diff_parser.py — Unified diff format parser.
+Converts raw GitHub diff text into structured FileDiff objects.
+
+Unified diff format primer:
+  diff --git a/foo.py b/foo.py     ← file header
+  --- a/foo.py                     ← old file marker
+  +++ b/foo.py                     ← new file marker
+  @@ -10,7 +10,9 @@               ← hunk header
+  -removed line                    ← deletion
+  +added line                      ← addition
+   context line                    ← unchanged (space prefix)
 """
 import re
-from pathlib import PurePosixPath
+import logging
+from pathlib import Path
 
 from models.review import DiffHunk, FileDiff, PRDiff
 
+logger = logging.getLogger(__name__)
 
-HUNK_HEADER_RE = re.compile(
-    r"^@@ -(?P<old_start>\d+)(?:,(?P<old_lines>\d+))? "
-    r"\+(?P<new_start>\d+)(?:,(?P<new_lines>\d+))? @@"
-)
-
-LANGUAGE_BY_EXTENSION = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".ts": "typescript",
-    ".tsx": "typescript",
+# Map file extensions → language names
+# Used later to select the right knowledge base docs for retrieval
+EXTENSION_TO_LANGUAGE: dict[str, str] = {
+    ".py":   "python",
+    ".js":   "javascript",
+    ".ts":   "typescript",
+    ".jsx":  "javascript",
+    ".tsx":  "typescript",
     ".java": "java",
-    ".go": "go",
-    ".rs": "rust",
-    ".c": "c",
-    ".h": "c",
-    ".cpp": "cpp",
-    ".hpp": "cpp",
-    ".cs": "csharp",
-    ".rb": "ruby",
-    ".php": "php",
-    ".swift": "swift",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".sh": "shell",
-    ".bash": "shell",
-    ".zsh": "shell",
-    ".sql": "sql",
-    ".html": "html",
-    ".css": "css",
-    ".scss": "scss",
-    ".json": "json",
+    ".go":   "go",
+    ".rs":   "rust",
+    ".md":   "markdown",
+    ".yml":  "yaml",
     ".yaml": "yaml",
-    ".yml": "yaml",
-    ".md": "markdown",
+    ".json": "json",
+    ".sh":   "bash",
 }
 
 
 def detect_language(file_path: str) -> str:
-    """Infer a readable language name from a file extension."""
-    suffix = PurePosixPath(file_path).suffix.lower()
-    return LANGUAGE_BY_EXTENSION.get(suffix, "unknown")
+    """Detect programming language from file extension."""
+    ext = Path(file_path).suffix.lower()
+    return EXTENSION_TO_LANGUAGE.get(ext, "unknown")
 
-
-def normalize_diff_path(path: str) -> str:
-    """Convert Git diff paths like b/app/main.py into app/main.py."""
-    path = path.strip()
-    if path == "/dev/null":
-        return path
-    if path.startswith("a/") or path.startswith("b/"):
-        return path[2:]
-    return path
+def parse_hunk_header(header_line: str) -> tuple[int, int, int, int]:
+    """
+    Parse @@ -old_start,old_lines +new_start,new_lines @@ format.
+    
+    [INTERNAL] The regex captures 4 numbers from the hunk header.
+    Example: '@@ -10,7 +10,9 @@'
+    → old_start=10, old_lines=7, new_start=10, new_lines=9
+    Edge case: '@@ -1 +1,4 @@' means old_lines=1 (comma+count omitted when =1)
+    """
+    # Pattern: @@ -NUM,NUM +NUM,NUM @@ (commas+second num optional)
+    pattern = r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@'
+    match = re.search(pattern, header_line)
+    
+    if not match:
+        raise ValueError(f"Cannot parse hunk header: {header_line}")
+    
+    old_start  = int(match.group(1))
+    old_lines  = int(match.group(2)) if match.group(2) else 1
+    new_start  = int(match.group(3))
+    new_lines  = int(match.group(4)) if match.group(4) else 1
+    
+    return old_start, old_lines, new_start, new_lines
 
 
 def parse_hunk(hunk_lines: list[str]) -> DiffHunk:
-    if not hunk_lines:
-        raise ValueError("Cannot parse an empty diff hunk")
-
+    """
+    Convert raw hunk lines into a structured DiffHunk.
+    First line is always the @@ header.
+    """
     header = hunk_lines[0]
-    match = HUNK_HEADER_RE.match(header)
-    if not match:
-        raise ValueError(f"Invalid hunk header: {header}")
-
-    added_lines: list[str] = []
-    removed_lines: list[str] = []
-    context_lines: list[str] = []
-
-    for line in hunk_lines[1:]:
-        if line.startswith("+") and not line.startswith("+++"):
-            added_lines.append(line[1:])
-        elif line.startswith("-") and not line.startswith("---"):
-            removed_lines.append(line[1:])
-        elif line.startswith(" "):
-            context_lines.append(line[1:])
-        elif line.startswith("\\"):
-            continue
-        else:
-            context_lines.append(line)
-
+    old_start, old_lines, new_start, new_lines = parse_hunk_header(header)
+    
+    added_lines   = []
+    removed_lines = []
+    context_lines = []
+    
+    for line in hunk_lines[1:]:  # skip the @@ header
+        if line.startswith('+'):
+            added_lines.append(line[1:])    # strip the + prefix
+        elif line.startswith('-'):
+            removed_lines.append(line[1:])  # strip the - prefix
+        elif line.startswith(' '):
+            context_lines.append(line[1:])  # strip the space prefix
+        # Lines starting with \ are "no newline at end of file" — skip
+    
     return DiffHunk(
-        old_start=int(match.group("old_start")),
-        new_start=int(match.group("new_start")),
-        old_lines=int(match.group("old_lines") or "1"),
-        new_lines=int(match.group("new_lines") or "1"),
+        old_start=old_start,
+        new_start=new_start,
+        old_lines=old_lines,
+        new_lines=new_lines,
         added_lines=added_lines,
         removed_lines=removed_lines,
         context_lines=context_lines,
         raw_hunk="\n".join(hunk_lines),
     )
 
-
-def parse_pr_diff(
-    diff_text: str,
-    pr_number: int,
-    repo_full_name: str,
-) -> PRDiff:
+def parse_file_diff(file_block: str) -> FileDiff | None:
     """
-    Parse a GitHub unified PR diff into structured review models.
-
-    The parser focuses on the data the review pipeline needs: changed files,
-    hunks, added lines, removed lines, and aggregate change counts.
+    Parse one file's complete diff block into a FileDiff.
+    A file block starts with 'diff --git' and contains all its hunks.
     """
-    files: list[FileDiff] = []
-    current_path: str | None = None
-    current_hunks: list[DiffHunk] = []
-    current_hunk_lines: list[str] = []
+    lines = file_block.strip().split('\n')
+    
+    # Extract file path from '+++ b/path/to/file' line
+    file_path = None
     is_new_file = False
     is_deleted_file = False
-
-    def finish_hunk() -> None:
-        nonlocal current_hunk_lines
-        if current_hunk_lines:
-            current_hunks.append(parse_hunk(current_hunk_lines))
-            current_hunk_lines = []
-
-    def finish_file() -> None:
-        nonlocal current_path, current_hunks, is_new_file, is_deleted_file
-        finish_hunk()
-        if current_path is None:
-            return
-
-        total_additions = sum(len(hunk.added_lines) for hunk in current_hunks)
-        total_deletions = sum(len(hunk.removed_lines) for hunk in current_hunks)
-        files.append(
-            FileDiff(
-                file_path=current_path,
-                language=detect_language(current_path),
-                hunks=current_hunks,
-                total_additions=total_additions,
-                total_deletions=total_deletions,
-                is_new_file=is_new_file,
-                is_deleted_file=is_deleted_file,
-            )
-        )
-
-        current_path = None
-        current_hunks = []
-        is_new_file = False
-        is_deleted_file = False
-
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
-            finish_file()
-            parts = line.split()
-            current_path = normalize_diff_path(parts[3]) if len(parts) >= 4 else None
-            continue
-
-        if current_path is None:
-            continue
-
-        if line.startswith("new file mode"):
-            is_new_file = True
-            continue
-
-        if line.startswith("deleted file mode"):
+    
+    for line in lines:
+        if line.startswith('+++ b/'):
+            file_path = line[6:]   # strip '+++ b/'
+        elif line.startswith('+++ /dev/null'):
             is_deleted_file = True
-            continue
+        elif line.startswith('--- /dev/null'):
+            is_new_file = True
+    
+    if not file_path or file_path == '/dev/null':
+        logger.warning("Could not extract file path from diff block")
+        return None
+    
+    # Split into individual hunks — each starts with @@
+    # [INTERNAL] We split on @@ but keep the delimiter by using a lookahead
+    hunk_blocks: list[list[str]] = []
+    current_hunk: list[str] = []
+    
+    for line in lines:
+        if line.startswith('@@'):
+            if current_hunk:
+                hunk_blocks.append(current_hunk)
+            current_hunk = [line]
+        elif current_hunk:
+            current_hunk.append(line)
+    
+    if current_hunk:
+        hunk_blocks.append(current_hunk)
+    
+    if not hunk_blocks:
+        logger.info(f"No hunks found in {file_path} — skipping")
+        return None
+    
+    hunks = [parse_hunk(block) for block in hunk_blocks]
+    total_additions = sum(len(h.added_lines) for h in hunks)
+    total_deletions = sum(len(h.removed_lines) for h in hunks)
+    
+    return FileDiff(
+        file_path=file_path,
+        language=detect_language(file_path),
+        hunks=hunks,
+        total_additions=total_additions,
+        total_deletions=total_deletions,
+        is_new_file=is_new_file,
+        is_deleted_file=is_deleted_file,
+    )
 
-        if line.startswith("+++ "):
-            new_path = normalize_diff_path(line[4:])
-            if new_path != "/dev/null":
-                current_path = new_path
-            continue
 
-        if line.startswith("@@ "):
-            finish_hunk()
-            current_hunk_lines = [line]
-            continue
-
-        if current_hunk_lines:
-            current_hunk_lines.append(line)
-
-    finish_file()
-
-    total_additions = sum(file_diff.total_additions for file_diff in files)
-    total_deletions = sum(file_diff.total_deletions for file_diff in files)
-
+def parse_pr_diff(raw_diff: str, pr_number: int, repo_full_name: str) -> PRDiff:
+    """
+    Parse complete PR diff (multiple files) into structured PRDiff.
+    
+    [INTERNAL] GitHub's diff format separates files with 'diff --git a/... b/...'
+    We split on this marker to get individual file blocks, then parse each.
+    """
+    if not raw_diff.strip():
+        logger.warning(f"Empty diff for PR #{pr_number}")
+        return PRDiff(
+            pr_number=pr_number,
+            repo_full_name=repo_full_name,
+            files=[],
+            total_files_changed=0,
+            total_additions=0,
+            total_deletions=0,
+        )
+    
+    # Split on file boundaries — 'diff --git' starts each file block
+    # [INTERNAL] re.split with a capture group keeps the delimiter in results
+    file_blocks = re.split(r'(?=diff --git )', raw_diff)
+    file_blocks = [b for b in file_blocks if b.strip()]
+    
+    files: list[FileDiff] = []
+    for block in file_blocks:
+        parsed = parse_file_diff(block)
+        if parsed:
+            files.append(parsed)
+    
     return PRDiff(
         pr_number=pr_number,
         repo_full_name=repo_full_name,
         files=files,
         total_files_changed=len(files),
-        total_additions=total_additions,
-        total_deletions=total_deletions,
+        total_additions=sum(f.total_additions for f in files),
+        total_deletions=sum(f.total_deletions for f in files),
     )
+

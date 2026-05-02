@@ -74,6 +74,14 @@ class EmbeddingPipeline:
             show_progress_bar=len(texts) > 10,  # progress bar only for large batches
         )
         return vectors.astype(np.float32)
+
+    def embed_texts(self, texts: list[str], batch_size: int = 32) -> np.ndarray:
+        """
+        Backwards-compatible alias for older scripts.
+
+        Prefer embed_batch() in new code.
+        """
+        return self.embed_batch(texts, batch_size=batch_size)
     
 def load_knowledge_base(kb_dir: str | Path) -> tuple[list[str], list[str]]:
     """

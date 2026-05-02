@@ -1,12 +1,10 @@
-import hashlib
+# test_webhook_local.py — run this to verify your HMAC logic works
 import hmac
+import hashlib
+import requests
 import json
 
-import requests
-
-from config import settings
-
-
+SECRET = ""  # must match .env
 payload = {
     "action": "opened",
     "number": 1,
@@ -29,11 +27,7 @@ payload = {
 }
 
 body = json.dumps(payload).encode("utf-8")
-mac = hmac.new(
-    settings.github_webhook_secret.encode("utf-8"),
-    msg=body,
-    digestmod=hashlib.sha256,
-)
+mac = hmac.new(SECRET.encode("utf-8"), msg=body, digestmod=hashlib.sha256)
 signature = f"sha256={mac.hexdigest()}"
 
 response = requests.post(
@@ -45,7 +39,4 @@ response = requests.post(
         "X-GitHub-Event": "pull_request",
     }
 )
-try:
-    print(response.status_code, response.json())
-except requests.JSONDecodeError:
-    print(response.status_code, response.text)
+print(response.status_code, response.json())

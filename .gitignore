@@ -1,7 +1,19 @@
-venv/
+# Keep image lean — exclude dev/test artifacts
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+.git/
+.github/
+*.egg-info/
+dist/
+build/
 .env
+.env.*
+!.env.example
+venv/
+.venv/
+*.log
+faiss_index/
 *.faiss
-*.pkl
-.DS_Store
+tests/
