@@ -6,8 +6,10 @@ FastAPI application entry point for CodeLens.
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from api.routes import router
 from llm.client import OllamaClient
@@ -52,3 +54,13 @@ def _load_config():
 
 app = FastAPI(title="CodeLens", version="0.1.0", lifespan=lifespan)
 app.include_router(router)
+
+# UI routes
+ui_dir = Path(__file__).parent / "ui"
+if ui_dir.exists():
+    from ui.routes import router as ui_router
+    app.include_router(ui_router)
+
+    @app.get("/", include_in_schema=False)
+    async def root_redirect():
+        return RedirectResponse(url="/ui/")

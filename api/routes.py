@@ -88,7 +88,7 @@ async def github_webhook(
 
     pr_number = payload["pull_request"]["number"]
     repo = payload["repository"]["full_name"]
-    pr_id = f"{repo}#{pr_number}"
+    pr_id = f"{repo.replace('/', '_')}_{pr_number}"
 
     # Initialize job store entry
     _job_store[pr_id] = []
@@ -114,12 +114,18 @@ async def _run_review_job(pr_id: str, payload: dict, client: OllamaClient) -> No
     try:
         _push_event(pr_id, "started", "Review started")
 
-        # In production: fetch diff from GitHub API using PyGithub
-        # For now: use diff from payload if present (manual trigger)
         files = _extract_files_from_payload(payload)
+        if not files:
+            _push_event(pr_id, "completed", "No reviewable files found in payload")
+            return
+
+        _push_event(pr_id, "started", f"Reviewing {len(files)} file(s)...")
 
         reviewer = CodeReviewer(client=client)
         summary = await reviewer.review_pr(files)
+
+        for c in summary.comments:
+            _push_comment_event(pr_id, c.model_dump())
 
         _review_results[pr_id] = {
             "files_reviewed": summary.files_reviewed,
@@ -127,18 +133,50 @@ async def _run_review_job(pr_id: str, payload: dict, client: OllamaClient) -> No
             "comments": [c.model_dump() for c in summary.comments],
             "processing_time_ms": summary.processing_time_ms,
         }
-        _push_event(pr_id, "completed", f"Review done: {len(summary.comments)} comments")
+        _push_event(
+            pr_id, "completed",
+            f"Review done: {summary.files_reviewed} files, "
+            f"{len(summary.comments)} comments in {summary.processing_time_ms:.0f}ms",
+        )
 
     except Exception as e:
         logger.error("Review job failed for %s: %s", pr_id, e)
         _push_event(pr_id, "error", str(e))
 
 
+def _push_comment_event(pr_id: str, comment: dict) -> None:
+    event = json.dumps({"status": "comment", "comment": comment, "ts": time.time()})
+    if pr_id not in _job_store:
+        _job_store[pr_id] = []
+    _job_store[pr_id].append(event)
+
+
 def _extract_files_from_payload(payload: dict) -> list[FileReviewInput]:
-    """Extract file inputs from webhook payload. Stub — real impl uses GitHub API."""
-    # Real implementation: use PyGithub to fetch PR files + diffs
-    # payload["pull_request"]["url"] → GET /repos/{owner}/{repo}/pulls/{n}/files
+    """Extract file inputs from webhook payload or manual submission."""
+    files_data = payload.get("files", [])
+    if files_data:
+        return [
+            FileReviewInput(
+                file_path=f.get("file_path", f.get("filename", "unknown")),
+                diff_chunk=f.get("diff_chunk", f.get("patch", "")),
+                language=f.get("language", _guess_language(f.get("file_path", ""))),
+            )
+            for f in files_data
+            if f.get("diff_chunk") or f.get("patch")
+        ]
     return []
+
+
+def _guess_language(file_path: str) -> str:
+    ext_map = {
+        ".py": "python", ".js": "javascript", ".ts": "typescript",
+        ".java": "java", ".go": "go", ".rs": "rust", ".rb": "ruby",
+        ".cpp": "cpp", ".c": "c", ".cs": "csharp",
+    }
+    for ext, lang in ext_map.items():
+        if file_path.endswith(ext):
+            return lang
+    return "unknown"
 
 
 def _push_event(pr_id: str, status: str, message: str) -> None:
@@ -181,47 +219,106 @@ async def stream_review(pr_id: str) -> StreamingResponse:
 
 
 async def _event_generator(pr_id: str) -> AsyncIterator[str]:
-    """
-    Async generator that yields SSE-formatted events.
+    """Yields SSE events. Uses 'event: comment' for HTMX sse-swap="comment"."""
+    import asyncio
 
-    # [INTERNAL] async generator = function with 'yield' inside 'async def'.
-    # Each 'yield' sends data to the client immediately.
-    # FastAPI's StreamingResponse iterates this generator and flushes each chunk.
-    # The \n\n at the end of each event is required by SSE spec —
-    # it's the event delimiter. Single \n = field delimiter within an event.
-    """
     sent_index = 0
-    max_wait = 300  # 5 minute timeout
+    max_wait = 120
 
     start = time.monotonic()
     while time.monotonic() - start < max_wait:
         events = _job_store.get(pr_id, [])
 
-        # Yield any new events since last check
         while sent_index < len(events):
-            yield f"data: {events[sent_index]}\n\n"
+            raw = events[sent_index]
             sent_index += 1
+            evt = json.loads(raw)
 
-        # Check if job is done
-        last = events[-1] if events else None
-        if last:
-            last_data = json.loads(last)
-            if last_data["status"] in ("completed", "error"):
-                yield "data: {\"status\": \"done\"}\n\n"
+            if evt["status"] in ("completed", "error"):
+                html = _render_status_html(evt)
+                yield f"event: comment\ndata: {html}\n\n"
                 return
 
-        # Poll every 500ms — small models are slow
-        import asyncio
+            if evt["status"] == "comment":
+                html = _render_comment_html(evt.get("comment", {}))
+                yield f"event: comment\ndata: {html}\n\n"
+            else:
+                html = _render_status_html(evt)
+                yield f"event: comment\ndata: {html}\n\n"
+
         await asyncio.sleep(0.5)
 
-    yield "data: {\"status\": \"timeout\"}\n\n"
+    yield f"event: comment\ndata: <div class='text-yellow-400 text-sm'>Timed out waiting for review.</div>\n\n"
+
+
+def _render_comment_html(c: dict) -> str:
+    severity = c.get("severity", "info")
+    colors = {
+        "critical": "red-400", "warning": "yellow-400",
+        "suggestion": "blue-400", "nitpick": "slate-400",
+    }
+    color = colors.get(severity, "slate-400")
+    file_path = c.get("file_path", "")
+    line = c.get("line_number", "")
+    text = c.get("comment", "")
+    category = c.get("category", "")
+    loc = f"{file_path}:{line}" if line else file_path
+
+    return (
+        f'<div class="comment-card bg-panel border border-border rounded-lg p-4">'
+        f'<div class="flex justify-between items-center mb-2">'
+        f'<span class="text-xs font-mono text-slate-500">{loc}</span>'
+        f'<span class="text-xs text-{color} font-semibold uppercase">{severity}</span>'
+        f'</div>'
+        f'<p class="text-sm text-slate-300">{text}</p>'
+        f'{"<span class=&quot;text-xs text-slate-600 mt-1 block&quot;>" + category + "</span>" if category else ""}'
+        f'</div>'
+    )
+
+
+def _render_status_html(evt: dict) -> str:
+    status = evt.get("status", "")
+    msg = evt.get("message", "")
+    if status == "completed":
+        return f'<div class="text-green-400 text-sm font-semibold mt-4">✓ {msg}</div>'
+    if status == "error":
+        return f'<div class="text-red-400 text-sm font-semibold mt-4">✗ {msg}</div>'
+    return f'<div class="text-slate-500 text-sm">{msg}</div>'
+
+
+# ── Manual Review Trigger ────────────────────────────────────────────────────
+
+class ManualReviewRequest(BaseModel):
+    pr_id: str
+    files: list[dict]
+
+
+@router.post("/review/trigger")
+async def trigger_review(
+    request: Request,
+    body: ManualReviewRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Trigger a review manually with inline diff data. No GitHub webhook needed."""
+    pr_id = body.pr_id
+    _job_store[pr_id] = []
+    _push_event(pr_id, "queued", f"Manual review queued: {pr_id}")
+
+    payload = {"files": body.files}
+    background_tasks.add_task(
+        _run_review_job,
+        pr_id=pr_id,
+        payload=payload,
+        client=request.app.state.ollama_client,
+    )
+    return {"pr_id": pr_id, "status": "queued"}
 
 
 # ── Health / Ready / Metrics ──────────────────────────────────────────────────
 
-@router.get("/")
-async def root() -> dict:
-    """Basic service index for humans and smoke checks."""
+@router.get("/api")
+async def api_index() -> dict:
+    """API index for humans and smoke checks."""
     return {
         "service": "CodeLens",
         "status": "ok",

@@ -1,0 +1,56 @@
+<!-- ui/templates/index.html -->
+{% extends "base.html" %}
+{% block title %}CodeLens — Submit PR{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+    <div>
+        <h1 class="text-2xl font-semibold text-white">Submit PR for Review</h1>
+        <p class="text-slate-500 text-sm mt-1">
+            CodeLens will analyze the diff and stream comments in real time.
+        </p>
+    </div>
+
+    <!-- Form POSTs to /ui/review — FastAPI Form() reads these fields -->
+    <form method="POST" action="/ui/review" class="space-y-5">
+
+        <div class="space-y-2">
+            <label class="text-sm text-slate-400">Repository</label>
+            <input
+                type="text"
+                name="repo_full_name"
+                placeholder="Premchand916/codelens"
+                required
+                class="w-full bg-panel border border-border rounded-lg px-4 py-3
+                       text-white placeholder-slate-600 focus:outline-none
+                       focus:border-brand focus:ring-1 focus:ring-brand
+                       transition-colors"
+            />
+        </div>
+
+        <div class="space-y-2">
+            <label class="text-sm text-slate-400">PR Number</label>
+            <input
+                type="number"
+                name="pr_number"
+                placeholder="42"
+                required
+                class="w-full bg-panel border border-border rounded-lg px-4 py-3
+                       text-white placeholder-slate-600 focus:outline-none
+                       focus:border-brand focus:ring-1 focus:ring-brand
+                       transition-colors"
+            />
+        </div>
+
+        <button
+            type="submit"
+            class="w-full bg-brand text-slate-900 font-semibold py-3 rounded-lg
+                   hover:bg-cyan-300 transition-colors"
+        >
+            Analyze Pull Request →
+        </button>
+
+    </form>
+</div>
+{% endblock %}

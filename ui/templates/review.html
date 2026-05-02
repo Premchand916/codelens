@@ -1,0 +1,65 @@
+<!-- ui/templates/review.html -->
+{% extends "base.html" %}
+{% block title %}CodeLens — Review {{ pr_id }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-xl font-semibold text-white">Live Review</h1>
+            <p class="text-slate-500 text-sm font-mono">{{ pr_id }}</p>
+        </div>
+        <!-- Status indicator — HTMX SSE updates this -->
+        <div id="status"
+             class="flex items-center gap-2 text-sm text-brand">
+            <span class="w-2 h-2 rounded-full bg-brand animate-pulse"></span>
+            Connecting...
+        </div>
+    </div>
+
+    <!--
+        [SURFACE] hx-ext="sse": HTMX SSE extension opens EventSource to stream_url.
+        [INTERNAL] Browser sends GET to /review/{pr_id}/stream with Accept: text/event-stream.
+        Server holds connection open, sends "data: ...\n\n" chunks.
+        HTMX listens for SSE event named "comment" → swaps content into #comments-feed.
+        hx-swap="beforeend" = append, not replace. Each chunk adds a new card.
+        This is why you need hx-ext="sse" AND sse.js loaded — it's an extension, not core.
+    -->
+    <div
+        hx-ext="sse"
+        sse-connect="{{ stream_url }}"
+        sse-swap="comment"
+        hx-swap="beforeend"
+        hx-target="#comments-feed"
+        id="sse-container"
+    >
+        <!-- HTMX wires SSE events here -->
+    </div>
+
+    <!-- Comments appear here, one by one as stream arrives -->
+    <div id="comments-feed" class="space-y-3">
+        <div class="text-slate-600 text-sm italic" id="waiting-msg">
+            Waiting for review comments...
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // Remove "waiting" message on first SSE event
+    document.addEventListener('htmx:sseBeforeMessage', function () {
+        const msg = document.getElementById('waiting-msg');
+        if (msg) msg.remove();
+
+        document.getElementById('status').innerHTML =
+            '<span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span> Streaming';
+    });
+
+    // Mark done when SSE closes
+    document.addEventListener('htmx:sseClose', function () {
+        document.getElementById('status').innerHTML =
+            '<span class="w-2 h-2 rounded-full bg-slate-500"></span> Complete';
+    });
+</script>
+{% endblock %}
