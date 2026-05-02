@@ -111,7 +111,7 @@ def parse_review_output(raw: str) -> ReviewComment | ParseResult:
 async def generate_review_comment(
     ctx: ReviewContext,
     client: OllamaClient,
-    max_retries: int = 2,
+    max_retries: int = 1,
 ) -> ReviewComment | None:
     messages = build_review_prompt(ctx)
 
@@ -121,19 +121,17 @@ async def generate_review_comment(
 
     for attempt in range(max_retries + 1):
         try:
-            raw = await client.chat(messages, temperature=0.0)
+            raw = await client.chat(messages, temperature=0.0, max_tokens=512)
             result = parse_review_output(raw)
 
             if isinstance(result, ReviewComment):
-                return result                              # success
+                return result
             if result == ParseResult.NO_COMMENT_NEEDED:
-                return None                               # done, don't retry
-            # ParseResult.PARSE_FAILED → fall through to retry
+                return None
             logger.warning("Parse failed attempt %d/%d", attempt + 1, max_retries + 1)
 
         except Exception as e:
             logger.error("LLM call failed attempt %d: %s", attempt + 1, e)
-            if attempt == max_retries:
-                return None
+            return None
 
     return None

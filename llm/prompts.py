@@ -81,7 +81,7 @@ Return JSON only."""
     ]
 
 
-def fits_in_context(messages: list[dict], max_chars: int = 16_000) -> bool:
+def fits_in_context(messages: list[dict], max_chars: int = 8_000) -> bool:
     """
     Lightweight context check before sending to a local model.
 

@@ -32,14 +32,15 @@ class OllamaClient:
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "llama3.1:8b",
-        timeout: float = 120.0,
+        model: str = "deepseek-coder:6.7b",
+        timeout: float = 60.0,
     ) -> None:
         self.base_url = base_url
         self.model = model
-        # httpx.AsyncClient is the async equivalent of requests.Session.
-        # timeout=120 because local LLMs can be slow on first token.
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout)
+        self._client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=httpx.Timeout(timeout, connect=5.0),
+        )
 
     async def chat(
         self,
@@ -70,7 +71,8 @@ class OllamaClient:
             "stream": False,
             "options": {
                 "temperature": temperature,
-                "num_predict": max_tokens,   # Ollama's name for max_tokens
+                "num_predict": max_tokens,
+                "num_ctx": 4096,
             },
         }
 

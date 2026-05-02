@@ -119,7 +119,7 @@ class CodeReviewer:
                 if comment is not None and self.cache is not None and self.retriever is not None:
                     try:
                         query_vec = self._embed(cache_key_text)
-                        self.cache.set(query_vec, comment.__dict__, query_text=cache_key_text)
+                        self.cache.set(query_vec, comment.model_dump(), query_text=cache_key_text)
                     except Exception as exc:
                         logger.error("Cache store failed: %s", exc)
 
@@ -141,7 +141,7 @@ class CodeReviewer:
             # --- Output guard ---
             # Extracts valid line numbers from diff for hallucination check.
             valid_lines = _extract_changed_lines(safe_diff)
-            out_result = self.output_guard.check([comment.__dict__], valid_lines)
+            out_result = self.output_guard.check([comment.model_dump()], valid_lines)
             if not out_result.filtered_comments:
                 logger.warning(
                     "OutputGuard dropped all comments for %s: %s",
