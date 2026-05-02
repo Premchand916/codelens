@@ -1,42 +1,38 @@
 [
   {
     "id": "tc001",
-    "description": "Plaintext password storage — must be critical/security",
+    "description": "Plaintext password storage",
     "file_path": "auth/users.py",
     "diff_chunk": "@@ -10,4 +10,5 @@\n def create_user(username: str, password: str):\n+    user.password = password\n+    db.session.add(user)\n",
     "language": "python",
-    "retrieved_docs": [
-      "Never store passwords in plaintext. Use bcrypt with work factor >= 12."
-    ],
+    "retrieved_docs": ["Never store passwords in plaintext. Use bcrypt with work factor >= 12."],
     "expected_severity": "critical",
     "expected_category": "security",
-    "should_comment": true
+    "should_comment": true,
+    "sample_comment": "Storing password in plaintext at user.password is a critical security vulnerability. Use bcrypt: user.password = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))"
   },
   {
     "id": "tc002",
-    "description": "Clean simple function — should not comment",
+    "description": "Clean simple function",
     "file_path": "utils/math.py",
     "diff_chunk": "@@ -5,3 +5,4 @@\n def double(value: int) -> int:\n+    return value * 2\n",
     "language": "python",
-    "retrieved_docs": [
-      "Functions should be small and do one thing well."
-    ],
+    "retrieved_docs": ["Functions should be small and do one thing well."],
     "expected_severity": null,
     "expected_category": null,
-    "should_comment": false
+    "should_comment": false,
+    "sample_comment": null
   },
   {
     "id": "tc003",
-    "description": "Bare except clause — should be warning/best_practice",
+    "description": "Bare except clause",
     "file_path": "api/handler.py",
     "diff_chunk": "@@ -20,5 +20,7 @@\n def process():\n+    try:\n+        run()\n+    except:\n+        pass\n",
     "language": "python",
-    "retrieved_docs": [
-      "Never use bare except. Always catch specific exceptions."
-    ],
+    "retrieved_docs": ["Never use bare except. Always catch specific exceptions."],
     "expected_severity": "warning",
     "expected_category": "best_practice",
-    "should_comment": true
+    "should_comment": true,
+    "sample_comment": "Bare except on line 23 silently swallows all exceptions including KeyboardInterrupt. Catch specific: except ValueError as e: logger.error(e)"
   }
 ]
-
